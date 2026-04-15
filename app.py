@@ -1,83 +1,101 @@
-{\rtf1\ansi\ansicpg950\cocoartf2868
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+import streamlit as st
+import google.generativeai as genai
+import edge_tts
+import asyncio
+import datetime
+from notion_client import Client
 
-\f0\fs24 \cf0 import streamlit as st\
-import google.generativeai as genai\
-import edge_tts\
-import asyncio\
-import datetime\
-from notion_client import Client\
-\
-# \uc0\u38913 \u38754 \u37197 \u32622 \
-st.set_page_config(page_title="\uc0\u23560 \u26989 \u33521 \u35486 \u23416 \u32722 \u31449 ", layout="wide")\
-\
-# \uc0\u23433 \u20840 \u35712 \u21462 \u37329 \u38000 \
-try:\
-    NOTION_TOKEN = st.secrets["NOTION_TOKEN"]\
-    NOTION_DB_ID = st.secrets["NOTION_DB_ID"]\
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]\
-    genai.configure(api_key=GEMINI_API_KEY)\
-    notion = Client(auth=NOTION_TOKEN)\
-except:\
-    st.error("\uc0\u35531 \u22312  Secrets \u38913 \u38754 \u35373 \u23450 \u37329 \u38000 \u12290 ")\
-\
-async def get_audio_bytes(text, voice):\
-    communicate = edge_tts.Communicate(text, voice)\
-    audio_data = b""\
-    async for chunk in communicate.stream():\
-        if chunk["type"] == "audio":\
-            audio_data += chunk["data"]\
-    return audio_data\
-\
-# \uc0\u24037 \u20316 \u21015 \u35373 \u23450 \
-st.sidebar.title("\uc0\u55357 \u57056 \u65039  \u23416 \u32722 \u38754 \u26495 ")\
-topic = st.sidebar.selectbox("\uc0\u20027 \u38988 ", ["\u20877 \u29983 \u33021 \u28304 \u24977 \u35657 (T-REC)\u21046 \u24230 ", "\u31934 \u21697 \u21654 \u21857 \u33795 \u21462 \u33287 \u28888 \u28953 ", "\u20225 \u26989 \u32026 \u32178 \u36890 \u33287 Mesh\u26550 \u27083 ", "\u30002 \u34802 (CBF1)\u39164 \u32946 \u25216 \u34899 ", "\u26085 \u26412 \u23478 \u24237 \u33258 \u39381 \u26053 \u36938 "])\
-mode = st.sidebar.radio("\uc0\u27169 \u24335 ", ["\u28145 \u24230 \u38321 \u35712  (Article)", "\u24773 \u22659 \u23565 \u35441  (Dialogue)"])\
-accent = st.sidebar.selectbox("\uc0\u21475 \u38899 ", ["\u32654 \u22283 \u33108  (US - Aria)", "\u33521 \u22283 \u33108  (UK - Sonia)"])\
-voice_map = \{"\uc0\u32654 \u22283 \u33108  (US - Aria)": "en-US-AriaNeural", "\u33521 \u22283 \u33108  (UK - Sonia)": "en-GB-SoniaNeural"\}\
-\
-st.title(f"\uc0\u55357 \u56534  \{topic\}")\
-\
-if st.button("\uc0\u55357 \u56613  \u29983 \u25104 \u25945 \u26448 "):\
-    with st.spinner("AI \uc0\u32769 \u24107 \u25776 \u23531 \u20013 ..."):\
-        model = genai.GenerativeModel('gemini-1.5-flash')\
-        prompt = f"""\
-        \uc0\u35531 \u37341 \u23565 \u20027 \u38988 \u12302 \{topic\}\u12303 \u20197 \u12302 \{mode\}\u12303 \u27169 \u24335 \u25776 \u23531  150 \u23383 \u36914 \u38542 \u33521 \u25991 \u12290 \u26684 \u24335 \u22914 \u19979 \u65306 \
-        ### [English Text]\
-        (\uc0\u25991 \u31456 \u20839 \u23481 )\
-        ### [\uc0\u20013 \u25991 \u32763 \u35695 ]\
-        (\uc0\u32763 \u35695 \u20839 \u23481 )\
-        ### [\uc0\u37325 \u40670 \u21934 \u23383 ]\
-        1. \uc0\u21934 \u23383  - [\u35422 \u24615 ] - /IPA\u30332 \u38899 (\u21152 \u31895 \u37325 \u38899 \u31526 \u34399 )/ - \u32763 \u35695 \u65306 \u20363 \u21477 \
-        (\uc0\u20849 \u19977 \u20491 )\
-        ### [\uc0\u37325 \u35201 \u25991 \u27861 ]\
-        1. \uc0\u29992 \u27861 \u35498 \u26126 \u65306 \u20363 \u21477 \
-        (\uc0\u20849 \u19977 \u20491 )\
-        """\
-        response = model.generate_content(prompt).text\
-        st.markdown(response)\
-        \
-        # \uc0\u38899 \u27284 \u34389 \u29702 \
-        eng_text = response.split("### [\uc0\u20013 \u25991 \u32763 \u35695 ]")[0].replace("### [English Text]", "")\
-        audio_data = asyncio.run(get_audio_bytes(eng_text, voice_map[accent]))\
-        \
-        st.divider()\
-        col1, col2 = st.columns([3, 1])\
-        with col1: st.audio(audio_data, format="audio/mp3")\
-        with col2: st.download_button("\uc0\u55357 \u56549  \u19979 \u36617 \u35486 \u38899 ", data=audio_data, file_name=f"\{topic\}.mp3")\
-        \
-        # \uc0\u21516 \u27493  Notion\
-        notion.pages.create(\
-            parent=\{"database_id": NOTION_DB_ID\},\
-            properties=\{\
-                "\uc0\u21517 \u31281 ": \{"title": [\{"text": \{"content": f"\{topic\} \u31558 \u35352 "\}\}]\},\
-                "\uc0\u26085 \u26399 ": \{"date": \{"start": datetime.datetime.now().strftime("%Y-%m-%d")\}\},\
-                "\uc0\u20027 \u38988 ": \{"select": \{"name": topic\}\}\
-            \},\
-            children=[\{"paragraph": \{"rich_text": [\{"text": \{"content": response\}\}]\}\}]\
-        )\
-        st.balloons()}
+# --- 介面設定 ---
+st.set_page_config(page_title="專業英語學習發射台", layout="wide")
+
+# --- 金鑰讀取 (只需兩組) ---
+try:
+    NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
+    NOTION_DB_ID = st.secrets["NOTION_DB_ID"]
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=GEMINI_API_KEY)
+    notion = Client(auth=NOTION_TOKEN)
+except:
+    st.warning("請在 Secrets 中設定 GEMINI_API_KEY, NOTION_TOKEN, NOTION_DB_ID")
+
+# --- 核心函式：語音生成與讀取 ---
+async def get_audio_bytes(text, voice):
+    communicate = edge_tts.Communicate(text, voice)
+    # 將音檔存為 bytes 以供下載
+    audio_data = b""
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_data += chunk["data"]
+    return audio_data
+
+# --- 側邊欄：工作列 ---
+st.sidebar.title("🛠️ 學習設定")
+topic = st.sidebar.selectbox("文章主題", ["再生能源憑證制度", "精品咖啡萃取理論", "企業級網通架構", "大象大兜蟲飼育(CBF1)", "日本親子旅遊對話"])
+mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
+accent = st.sidebar.selectbox("口音選擇", ["美國腔 (US - Aria)", "英國腔 (UK - Sonia)"])
+voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia)": "en-GB-SoniaNeural"}
+
+# --- 主畫面 ---
+st.title(f"📖 今日學習：{topic}")
+
+if st.button("🔥 生成教材並開始練習"):
+    with st.spinner("AI 老師正在準備內容..."):
+        # 1. AI 生成內容
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = f"""
+        請針對主題『{topic}』，以『{mode}』模式撰寫一段約 150 字的高階英文。
+        格式必須精確如下：
+        ### [原文]
+        (英文原文)
+        ### [翻譯]
+        (中文翻譯)
+        ### [重點單字]
+        1. 單字 - [詞性] - /發音與重音/ - 翻譯：例句
+        2. ... (共三個)
+        ### [重要文法]
+        1. 用法說明：例句
+        2. ... (共三個)
+        """
+        response_text = model.generate_content(prompt).text
+        
+        # 2. 生成語音 bytes
+        english_text = response_text.split("### [翻譯]")[0].replace("### [原文]", "")
+        audio_data = asyncio.run(get_audio_bytes(english_text, voice_map[accent]))
+        
+        # 3. 畫面呈現
+        st.markdown(response_text)
+        
+        # --- 音檔操作區 ---
+        st.divider()
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.audio(audio_data, format="audio/mp3")
+        with col2:
+            st.download_button(
+                label="📥 下載本篇語音 (MP3)",
+                data=audio_data,
+                file_name=f"{topic}_{datetime.date.today()}.mp3",
+                mime="audio/mp3"
+            )
+        
+        # 4. 同步至 Notion (僅同步文字資訊)
+        try:
+            notion.pages.create(
+                parent={"database_id": NOTION_DB_ID},
+                properties={
+                    "名稱": {"title": [{"text": {"content": f"{topic} 學習筆記"}}]},
+                    "日期": {"date": {"start": datetime.datetime.now().strftime("%Y-%m-%d")}},
+                    "主題": {"select": {"name": topic}}
+                },
+                children=[
+                    {"heading_2": {"rich_text": [{"text": {"content": "📄 教材全文與解析"}}]}},
+                    {"paragraph": {"rich_text": [{"text": {"content": response_text}}]}}
+                ]
+            )
+            st.success("✅ 解析已同步至 Notion 資料庫！")
+        except Exception as e:
+            st.error(f"Notion 同步失敗: {e}")
+
+# --- 複習提示 ---
+st.sidebar.divider()
+st.sidebar.info("💡 產出的單字與文法會自動彙整至 Notion，您可以在手機上隨時複習。")
