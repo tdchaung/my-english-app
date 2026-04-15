@@ -41,7 +41,7 @@ async def get_audio_bytes(text, voice):
     return audio_data
 
 st.sidebar.title("🛠️ 學習設定")
-topic = st.sidebar.selectbox("文章主題", ["再生能源憑證制度", "精品咖啡萃取理論", "企業級網通架構", "大象大兜蟲飼育(CBF1)", "日本親子旅遊對話"])
+topic = st.sidebar.selectbox("文章主題", ["再生能源", "精品咖啡", "無碳電力", "兜蟲飼育", "親子旅遊", "生活對話"])
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
 accent = st.sidebar.selectbox("口音選擇", ["美國腔 (US - Aria)", "英國腔 (UK - Sonia)"])
 voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia)": "en-GB-SoniaNeural"}
@@ -49,12 +49,12 @@ voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia
 st.title(f"📖 今日學習：{topic}")
 
 if st.button("🔥 生成教材並開始練習"):
-    with st.spinner("AI 老師正在準備內容 (若卡住請檢查 API 金鑰)..."):
+    with st.spinner("AI 老師正在準備內容 ..."):
         try:
             # 使用絕對路徑呼叫最新 Flash 模型
             model = genai.GenerativeModel('gemini-2.5-flash')
             prompt = f"""
-            請針對主題『{topic}』，以『{mode}』模式撰寫一段約 150 字的高階英文。
+            請針對主題『{topic}』，以『{mode}』模式撰寫一段約 300 字的高階英文。
             格式必須精確如下：
             ### [原文]
             (英文原文)
