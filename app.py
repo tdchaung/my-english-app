@@ -86,8 +86,25 @@ if st.button("🔥 生成教材並開始練習"):
         with col2:
             st.download_button("📥 下載本篇語音", data=audio_data, file_name=f"{topic}.mp3", mime="audio/mp3")
         
-        # 同步至 Notion
+        # 同步至 Notion (含自動分段防護機制)
+        # ==========================================
         try:
+            # 1. 建立基礎標題
+            notion_blocks = [
+                {"heading_2": {"rich_text": [{"text": {"content": "📄 教材全文與解析"}}]}}
+            ]
+            
+            # 2. 將長文章依「換行符號」切開，變成多個小段落
+            for line in response_text.split('\n'):
+                if line.strip():  # 忽略完全空白的行
+                    # 預防萬一單行依然超過 2000 字，再進行 1900 字的安全切割
+                    chunks = [line[i:i+1900] for i in range(0, len(line), 1900)]
+                    for chunk in chunks:
+                        notion_blocks.append({
+                            "paragraph": {"rich_text": [{"text": {"content": chunk}}]}
+                        })
+
+            # 3. 將切好的小段落送進 Notion
             notion.pages.create(
                 parent={"database_id": NOTION_DB_ID},
                 properties={
@@ -95,11 +112,10 @@ if st.button("🔥 生成教材並開始練習"):
                     "日期": {"date": {"start": datetime.datetime.now().strftime("%Y-%m-%d")}},
                     "主題": {"select": {"name": topic}}
                 },
-                children=[
-                    {"heading_2": {"rich_text": [{"text": {"content": "📄 教材全文與解析"}}]}},
-                    {"paragraph": {"rich_text": [{"text": {"content": response_text}}]}}
-                ]
+                children=notion_blocks
             )
-            st.success("✅ 解析已成功同步至 Notion！")
+            st.success("✅ 解析已成功同步至 Notion！您可以前往手機 App 複習了。")
+            st.balloons() # 加上慶祝小動畫
+            
         except Exception as e:
-            st.error(f"❌ Notion 同步失敗，請檢查 Token 與 DB_ID: {e}")
+            st.error(f"❌ Notion 同步失敗: {e}")
