@@ -1,23 +1,15 @@
 import streamlit as st
 import google.generativeai as genai
-import edge_tts
-import asyncio
+from gtts import gTTS
+from io import BytesIO
 import datetime
 from notion_client import Client
 
 st.set_page_config(page_title="專業英語學習發射台", layout="wide")
 
 # ==========================================
-# 🛑 嚴格金鑰安檢站 (偵錯專用)
+# 🛑 金鑰讀取區
 # ==========================================
-if "GEMINI_API_KEY" not in st.secrets:
-    st.error("🚨 系統找不到『GEMINI_API_KEY』！請至 Advanced Settings -> Secrets 檢查。")
-    st.stop()
-if "NOTION_TOKEN" not in st.secrets:
-    st.error("🚨 系統找不到『NOTION_TOKEN』！請至 Advanced Settings -> Secrets 檢查。")
-    st.stop()
-
-# 讀取金鑰並初始化
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
@@ -30,28 +22,30 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# 核心函式與介面
+# 核心函式：Google 語音生成 (極度穩定版)
 # ==========================================
-async def get_audio_bytes(text, voice):
-    communicate = edge_tts.Communicate(text, voice)
-    audio_data = b""
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio_data += chunk["data"]
-    return audio_data
+def get_audio_bytes(text, accent_tld):
+    # 使用 Google TTS，tld 控制口音 (us=美國, co.uk=英國)
+    tts = gTTS(text=text, lang='en', tld=accent_tld)
+    fp = BytesIO()
+    tts.write_to_fp(fp)
+    return fp.getvalue()
 
+# ==========================================
+# 側邊欄與介面
+# ==========================================
 st.sidebar.title("🛠️ 學習設定")
 topic = st.sidebar.selectbox("文章主題", ["再生能源", "精品咖啡", "無碳電力", "兜蟲飼育", "親子旅遊", "生活對話"])
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
-accent = st.sidebar.selectbox("口音選擇", ["美國腔 (US - Aria)", "英國腔 (UK - Sonia)"])
-voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia)": "en-GB-SoniaNeural"}
+# 改用 Google TTS 支援的口音代碼
+accent = st.sidebar.selectbox("口音選擇", ["美國腔 (US)", "英國腔 (UK)"])
+voice_map = {"美國腔 (US)": "us", "英國腔 (UK)": "co.uk"}
 
 st.title(f"📖 今日學習：{topic}")
 
 if st.button("🔥 生成教材並開始練習"):
     with st.spinner("AI 老師正在準備內容 ..."):
         try:
-            # 使用絕對路徑呼叫最新 Flash 模型
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
             prompt = f"""
             請針對主題『{topic}』，以『{mode}』模式撰寫一段約 300 字的高階英文。
@@ -67,44 +61,49 @@ if st.button("🔥 生成教材並開始練習"):
             1. 用法說明：例句
             (共三個)
             """
-            # 若這裡出錯，會在網頁上直接印出紅色錯誤，不再是黑盒子！
             response_text = model.generate_content(prompt).text
         except Exception as api_err:
             st.error(f"❌ Gemini API 呼叫失敗！詳細原因：{api_err}")
             st.stop()
         
-        # 語音與畫面呈現
-        english_text = response_text.split("### [翻譯]")[0].replace("### [原文]", "")
-        audio_data = asyncio.run(get_audio_bytes(english_text, voice_map[accent]))
-        
+        # 畫面呈現 (先印出文字)
         st.markdown(response_text)
         
+        # ==========================================
+        # 語音萃取與播放防護機制
+        # ==========================================
         st.divider()
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.audio(audio_data, format="audio/mp3")
-        with col2:
-            st.download_button("📥 下載本篇語音", data=audio_data, file_name=f"{topic}.mp3", mime="audio/mp3")
+        try:
+            # 嚴格過濾：只抓取第一段的英文，並清除 Markdown 符號避免引擎當機
+            english_text = response_text.split("### [翻譯]")[0].replace("### [原文]", "").replace("*", "").replace("#", "").strip()
+            
+            # 生成語音
+            audio_data = get_audio_bytes(english_text, voice_map[accent])
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.audio(audio_data, format="audio/mp3")
+            with col2:
+                st.download_button("📥 下載本篇語音", data=audio_data, file_name=f"{topic}.mp3", mime="audio/mp3")
+        except Exception as e:
+            st.warning("⚠️ 語音生成暫時無法使用，但文字教材已順利產出。")
         
-        # 同步至 Notion (含自動分段防護機制)
+        # ==========================================
+        # 同步至 Notion 
         # ==========================================
         try:
-            # 1. 建立基礎標題
             notion_blocks = [
                 {"heading_2": {"rich_text": [{"text": {"content": "📄 教材全文與解析"}}]}}
             ]
             
-            # 2. 將長文章依「換行符號」切開，變成多個小段落
             for line in response_text.split('\n'):
-                if line.strip():  # 忽略完全空白的行
-                    # 預防萬一單行依然超過 2000 字，再進行 1900 字的安全切割
+                if line.strip():  
                     chunks = [line[i:i+1900] for i in range(0, len(line), 1900)]
                     for chunk in chunks:
                         notion_blocks.append({
                             "paragraph": {"rich_text": [{"text": {"content": chunk}}]}
                         })
 
-            # 3. 將切好的小段落送進 Notion
             notion.pages.create(
                 parent={"database_id": NOTION_DB_ID},
                 properties={
@@ -115,7 +114,6 @@ if st.button("🔥 生成教材並開始練習"):
                 children=notion_blocks
             )
             st.success("✅ 解析已成功同步至 Notion！您可以前往手機 App 複習了。")
-            st.balloons() # 加上慶祝小動畫
             
         except Exception as e:
             st.error(f"❌ Notion 同步失敗: {e}")
