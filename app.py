@@ -52,7 +52,7 @@ if st.button("🔥 生成教材並開始練習"):
     with st.spinner("AI 老師正在準備內容 ..."):
         try:
             # 使用絕對路徑呼叫最新 Flash 模型
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             prompt = f"""
             請針對主題『{topic}』，以『{mode}』模式撰寫一段約 300 字的高階英文。
             格式必須精確如下：
