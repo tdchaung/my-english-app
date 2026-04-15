@@ -41,7 +41,7 @@ st.title(f"📖 今日學習：{topic}")
 if st.button("🔥 生成教材並開始練習"):
     with st.spinner("AI 老師正在準備內容..."):
         # 1. AI 生成內容
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         prompt = f"""
         請針對主題『{topic}』，以『{mode}』模式撰寫一段約 150 字的高階英文。
         格式必須精確如下：
