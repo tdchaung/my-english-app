@@ -184,7 +184,7 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.stop()
 
     with st.spinner(f"AI 老師正在組織 {lang_prefix} 的學習重點..."):
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         target_lang_name = "英文" if "英文" in learning_lang else "日文"
         
         prompt = f"""
