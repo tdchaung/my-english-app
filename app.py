@@ -66,10 +66,9 @@ async def get_audio_bytes(text, voice, rate):
 # ==========================================
 st.sidebar.title("🛠️ 學習設定")
 
-topic_list = ["再生能源憑證 (T-REC)", "精品咖啡萃取", "無碳電力轉供", "大象大兜蟲飼育", "日本親子旅遊", "網路通訊技術", "其他"]
-topic_choice = st.sidebar.selectbox("文章主題", topic_list)
+topic_choice = st.sidebar.selectbox("文章主題", ["再生能源", "精品咖啡", "無碳電力", "兜蟲飼育", "親子旅遊", "生活對話", "其他"])
 if topic_choice == "其他":
-    topic = st.sidebar.text_input("✍️ 請輸入自訂主題：")
+    topic = st.sidebar.text_input("✍️ 請輸入自訂主題：", "例如：Wi-Fi 7 技術優勢")
 else:
     topic = topic_choice
 
