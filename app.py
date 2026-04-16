@@ -5,7 +5,7 @@ import asyncio
 import datetime
 from notion_client import Client
 
-st.set_page_config(page_title="專業英語學習發射台 V4.1", layout="wide")
+st.set_page_config(page_title="專業英語學習發射台 V4.2", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -22,13 +22,9 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# 核心功能：自動查找或建立分類區塊 (Merge Logic)
+# 核心功能：自動查找或建立分類區塊
 # ==========================================
 def get_section_id(page_id, title, emoji):
-    """
-    在頁面中尋找標題匹配的 Callout 區塊 ID。
-    如果找不到，就建立一個新的。
-    """
     try:
         results = notion.blocks.children.list(block_id=page_id).get("results", [])
         for block in results:
@@ -37,7 +33,7 @@ def get_section_id(page_id, title, emoji):
                 if rich_text and title in rich_text[0]["plain_text"]:
                     return block["id"]
         
-        # 找不到則建立新的容器 (Callout) - 已修正 Annotations 階層
+        # 建立新的 Callout 容器
         new_block = notion.blocks.children.append(
             block_id=page_id,
             children=[{
@@ -100,6 +96,7 @@ if st.button("🔥 生成教材並同步知識庫"):
     with st.spinner("AI 老師正在組織知識結構..."):
         try:
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            # [源頭限制] 加入極度嚴格的數量控制
             prompt = f"""
             請針對主題『{topic}』，以『{mode}』模式撰寫一段約 {word_count} 字的高階英文。
             要求：
@@ -109,7 +106,10 @@ if st.button("🔥 生成教材並同步知識庫"):
             4. 使用 ### 重點單字 分區。
             5. 使用 ### 重點片語 分區。
             6. 使用 ### 重要文法 分區。
-            條列格式：項目 - 性質 - /發音/ - 翻譯：例句 (嚴禁使用 [])
+            
+            ⚠️ 極度嚴格限制：
+            單字、片語、文法【每一項絕對只能提供剛好 3 個】，請勿提供多餘的解釋！
+            條列格式：項目 - 性質 - /發音/ - 翻譯：精簡例句 (嚴禁使用 [])
             """
             response_text = model.generate_content(prompt).text
         except Exception as api_err:
@@ -154,7 +154,7 @@ if st.button("🔥 生成教材並同步知識庫"):
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
 
         # ==========================================
-        # Notion 累積合併邏輯 (Merge to Category)
+        # Notion 累積合併邏輯 + 長度防爆切割 (Chunking)
         # ==========================================
         try:
             v_id = get_section_id(NOTION_PAGE_ID, "重點單字", "💡")
@@ -163,24 +163,32 @@ if st.button("🔥 生成教材並同步知識庫"):
 
             now_time = datetime.datetime.now().strftime("%m/%d")
             
-            # 已修正 Annotations 階層
             def append_to_notion(block_id, content, prefix):
                 if not content: return
+                
+                # 第一段：日期標籤 (灰色粗體)
+                rich_text_list = [
+                    {
+                        "type": "text",
+                        "text": {"content": f"📌 {now_time}：\n"},
+                        "annotations": {"bold": True, "color": "gray"}
+                    }
+                ]
+                
+                # 第二段：內容切割防護網 (每 1900 字切一塊)
+                full_text = f"{content}\n\n"
+                chunks = [full_text[i:i+1900] for i in range(0, len(full_text), 1900)]
+                for chunk in chunks:
+                    rich_text_list.append({
+                        "type": "text",
+                        "text": {"content": chunk}
+                    })
+
                 notion.blocks.children.append(
                     block_id=block_id,
                     children=[{
                         "paragraph": {
-                            "rich_text": [
-                                {
-                                    "type": "text",
-                                    "text": {"content": f"📌 {now_time}：\n"},
-                                    "annotations": {"bold": True, "color": "gray"}
-                                },
-                                {
-                                    "type": "text",
-                                    "text": {"content": f"{content}\n\n"}
-                                }
-                            ]
+                            "rich_text": rich_text_list
                         }
                     }]
                 )
