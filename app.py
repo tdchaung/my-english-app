@@ -5,7 +5,7 @@ import asyncio
 import datetime
 from notion_client import Client
 
-st.set_page_config(page_title="專業英語學習發射台 V4.0", layout="wide")
+st.set_page_config(page_title="專業英語學習發射台 V4.1", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -37,12 +37,18 @@ def get_section_id(page_id, title, emoji):
                 if rich_text and title in rich_text[0]["plain_text"]:
                     return block["id"]
         
-        # 找不到則建立新的容器 (Callout)
+        # 找不到則建立新的容器 (Callout) - 已修正 Annotations 階層
         new_block = notion.blocks.children.append(
             block_id=page_id,
             children=[{
                 "callout": {
-                    "rich_text": [{"text": {"content": f"{title}\n", "annotations": {"bold": True}}}],
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {"content": f"{title}\n"},
+                            "annotations": {"bold": True}
+                        }
+                    ],
                     "icon": {"emoji": emoji},
                     "color": "blue_background"
                 }
@@ -66,9 +72,10 @@ async def get_audio_bytes(text, voice, rate):
 # ==========================================
 st.sidebar.title("🛠️ 學習設定")
 
-topic_choice = st.sidebar.selectbox("文章主題", ["再生能源", "精品咖啡", "無碳電力", "兜蟲飼育", "親子旅遊", "生活對話", "其他"])
+topic_list = ["再生能源", "精品咖啡", "無碳電力", "甲蟲飼育", "親子旅遊", "AI技術", "其他"]
+topic_choice = st.sidebar.selectbox("文章主題", topic_list)
 if topic_choice == "其他":
-    topic = st.sidebar.text_input("✍️ 請輸入自訂主題：", "例如：Wi-Fi 7 技術優勢")
+    topic = st.sidebar.text_input("✍️ 請輸入自訂主題：")
 else:
     topic = topic_choice
 
@@ -115,7 +122,6 @@ if st.button("🔥 生成教材並同步知識庫"):
             title = eng_part[0].strip()
             english_text = '\n'.join(eng_part[1:]).strip()
             
-            # 提取分類內容
             trans, vocab, phrase, grammar = "", "", "", ""
             for s in sections:
                 if "中文翻譯" in s: trans = s.replace("中文翻譯", "").strip()
@@ -129,7 +135,6 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.markdown(f"# {title}")
         st.write(english_text)
 
-        # 語音播放 (位置：原文下方)
         try:
             audio_data = asyncio.run(get_audio_bytes(english_text, voice_map[accent], speed_map[speed_choice]))
             c1, c2 = st.columns([3, 1])
@@ -141,7 +146,6 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.subheader("🇹🇼 中文翻譯")
         st.write(trans)
 
-        # 學習重點色塊區隔
         st.divider()
         st.markdown("### 🎯 核心學習重點")
         col_v, col_p, col_g = st.columns(3)
@@ -153,14 +157,13 @@ if st.button("🔥 生成教材並同步知識庫"):
         # Notion 累積合併邏輯 (Merge to Category)
         # ==========================================
         try:
-            # 1. 取得或建立三個分類容器的 ID
             v_id = get_section_id(NOTION_PAGE_ID, "重點單字", "💡")
             p_id = get_section_id(NOTION_PAGE_ID, "重點片語", "🔗")
             g_id = get_section_id(NOTION_PAGE_ID, "重要文法", "📝")
 
-            # 2. 將新內容追加到對應容器中 (包含日期小註記)
             now_time = datetime.datetime.now().strftime("%m/%d")
             
+            # 已修正 Annotations 階層
             def append_to_notion(block_id, content, prefix):
                 if not content: return
                 notion.blocks.children.append(
@@ -168,8 +171,15 @@ if st.button("🔥 生成教材並同步知識庫"):
                     children=[{
                         "paragraph": {
                             "rich_text": [
-                                {"text": {"content": f"📌 {now_time}：\n", "annotations": {"bold": True, "color": "gray"}}},
-                                {"text": {"content": f"{content}\n\n"}}
+                                {
+                                    "type": "text",
+                                    "text": {"content": f"📌 {now_time}：\n"},
+                                    "annotations": {"bold": True, "color": "gray"}
+                                },
+                                {
+                                    "type": "text",
+                                    "text": {"content": f"{content}\n\n"}
+                                }
                             ]
                         }
                     }]
