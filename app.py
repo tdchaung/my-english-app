@@ -2,10 +2,10 @@ import streamlit as st
 import google.generativeai as genai
 import edge_tts
 import asyncio
-import datetime
+import re
 from notion_client import Client
 
-st.set_page_config(page_title="專業英語學習發射台 V4.2", layout="wide")
+st.set_page_config(page_title="專業英語學習發射台 V4.4", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -64,6 +64,21 @@ async def get_audio_bytes(text, voice, rate):
     return audio_data
 
 # ==========================================
+# 文字格式清洗濾波器 (拔除數字、消滅空白行)
+# ==========================================
+def format_to_bullet(text):
+    if not text: return ""
+    text = text.strip()
+    # 1. 把所有開頭的 "數字." (例如 1. 2. 3.) 強制換成 "• "
+    text = re.sub(r'^\s*\d+\.\s*', '• ', text, flags=re.MULTILINE)
+    # 2. 如果 AI 偷用 "-" 或 "*" 列點，也統一洗成 "• "
+    text = re.sub(r'^\s*[-*]\s+', '• ', text, flags=re.MULTILINE)
+    # 3. 壓縮空白行：把多個連續換行符號壓縮成一個換行符號 (消滅大間距)
+    text = re.sub(r'\n\s*\n', '\n', text)
+    # 4. 確保結尾只帶有一個換行，讓下次匯入完美銜接
+    return text + "\n"
+
+# ==========================================
 # 側邊欄：控制區
 # ==========================================
 st.sidebar.title("🛠️ 學習設定")
@@ -96,7 +111,7 @@ if st.button("🔥 生成教材並同步知識庫"):
     with st.spinner("AI 老師正在組織知識結構..."):
         try:
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
-            # [源頭限制] 加入極度嚴格的數量控制
+            # 調整 Prompt：明令禁止使用數字編號
             prompt = f"""
             請針對主題『{topic}』，以『{mode}』模式撰寫一段約 {word_count} 字的高階英文。
             要求：
@@ -108,8 +123,9 @@ if st.button("🔥 生成教材並同步知識庫"):
             6. 使用 ### 重要文法 分區。
             
             ⚠️ 極度嚴格限制：
-            單字、片語、文法【每一項絕對只能提供剛好 3 個】，請勿提供多餘的解釋！
-            條列格式：項目 - 性質 - /發音/ - 翻譯：精簡例句 (嚴禁使用 [])
+            單字、片語、文法【每一項絕對只能提供剛好 3 個】。
+            【絕對禁止使用數字編號 (1. 2. 3.)】，每一項請一律以 bullet point「•」開頭！
+            條列格式：• 項目 - 性質 - /發音/ - 翻譯：精簡例句 (嚴禁使用 [])
             """
             response_text = model.generate_content(prompt).text
         except Exception as api_err:
@@ -130,6 +146,13 @@ if st.button("🔥 生成教材並同步知識庫"):
                 if "重要文法" in s: grammar = s.replace("重要文法", "").strip()
         except:
             st.error("格式解析異常，請重新嘗試。"); st.stop()
+
+        # ==========================================
+        # 套用文字格式清洗
+        # ==========================================
+        vocab = format_to_bullet(vocab)
+        phrase = format_to_bullet(phrase)
+        grammar = format_to_bullet(grammar)
 
         # --- 顯示介面 ---
         st.markdown(f"# {title}")
@@ -154,7 +177,7 @@ if st.button("🔥 生成教材並同步知識庫"):
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
 
         # ==========================================
-        # Notion 累積合併邏輯 (純淨無日期版) + 長度防爆切割
+        # Notion 累積合併邏輯
         # ==========================================
         try:
             v_id = get_section_id(NOTION_PAGE_ID, "重點單字", "💡")
@@ -162,13 +185,12 @@ if st.button("🔥 生成教材並同步知識庫"):
             g_id = get_section_id(NOTION_PAGE_ID, "重要文法", "📝")
             
             def append_to_notion(block_id, content):
-                if not content: return
+                if not content.strip(): return
                 
                 rich_text_list = []
                 
-                # 直接進行切割防護，不加任何額外標籤
-                full_text = f"{content}\n\n"
-                chunks = [full_text[i:i+1900] for i in range(0, len(full_text), 1900)]
+                # 內容切割防護 (維持純淨，已無多餘空行)
+                chunks = [content[i:i+1900] for i in range(0, len(content), 1900)]
                 
                 for chunk in chunks:
                     rich_text_list.append({
@@ -189,7 +211,7 @@ if st.button("🔥 生成教材並同步知識庫"):
             append_to_notion(p_id, phrase)
             append_to_notion(g_id, grammar)
             
-            st.success("✅ 知識已自動純淨合併至 Notion 對應庫中！")
+            st.success("✅ 知識已自動純淨合併至 Notion 對應庫中！無縫排版完成！")
             st.balloons()
             
         except Exception as e:
