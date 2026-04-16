@@ -25,9 +25,6 @@ except Exception as e:
 # 核心功能：自動查找或建立分類區塊 (支援語言隔離)
 # ==========================================
 def get_section_id(page_id, lang_prefix, title, emoji):
-    """
-    尋找帶有語言前綴的區塊，例如 "🇬🇧 英文單字庫"
-    """
     full_title = f"{lang_prefix} {title}"
     try:
         results = notion.blocks.children.list(block_id=page_id).get("results", [])
@@ -37,7 +34,6 @@ def get_section_id(page_id, lang_prefix, title, emoji):
                 if rich_text and full_title in rich_text[0]["plain_text"]:
                     return block["id"]
         
-        # 建立新的語言專屬容器
         new_block = notion.blocks.children.append(
             block_id=page_id,
             children=[{
@@ -76,7 +72,7 @@ def format_to_bullet(text):
     return text + "\n"
 
 # ==========================================
-# 側邊欄：控制區 (強化主題與語言分流)
+# 側邊欄：控制區
 # ==========================================
 st.sidebar.title("🛠️ 學習設定")
 
@@ -97,14 +93,15 @@ else:
     lang_prompt_target = f"{difficulty} 程度的日文"
     pronunciation_desc = "/平假名讀音/"
 
-# 整合個人興趣與專業領域的主題清單
+# 整合了您的 AI 技術與個人專屬主題清單
 topic_list = [
+    "AI 技術", 
     "再生能源", 
     "精品咖啡", 
     "無碳電力", 
     "甲蟲飼育", 
-    "AI技術",
     "親子旅遊",
+    "美食",
     "其他"
 ]
 topic_choice = st.sidebar.selectbox("📚 文章主題", topic_list)
@@ -115,4 +112,94 @@ speed_choice = st.sidebar.select_slider("語速", options=["慢速", "正常", "
 speed_map = {"慢速": "-20%", "正常": "+0%", "快速": "+20%"}
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
 
-# =
+# ==========================================
+# 主顯示區 (這一段就是剛剛遺失的靈魂)
+# ==========================================
+st.title(f"📖 今日學習：{topic}")
+
+if st.button("🔥 生成教材並同步知識庫"):
+    if not topic:
+        st.warning("⚠️ 請輸入主題。")
+        st.stop()
+
+    with st.spinner(f"AI 老師正在組織 {lang_prefix} 的學習重點..."):
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            target_lang_name = "英文" if "英文" in learning_lang else "日文"
+            
+            prompt = f"""
+            請針對主題『{topic}』，以『{mode}』模式撰寫一段約 {word_count} 字的【{lang_prompt_target}】。
+            要求：符合 {difficulty} 難度，第一行為{target_lang_name}標題，接著原文，其後使用 ### 分隔中文翻譯、重點單字、重點片語、重要文法。
+            ⚠️ 每項嚴格限制剛好 3 個，禁止數字編號，統一使用 • 開頭。
+            格式：• 項目 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+            """
+            response_text = model.generate_content(prompt).text
+        except Exception as api_err:
+            st.error(f"❌ API 失敗：{api_err}"); st.stop()
+
+        # 解析與清洗
+        try:
+            sections = response_text.split("###")
+            eng_part = sections[0].strip().split('\n')
+            title = eng_part[0].strip()
+            article_text = '\n'.join(eng_part[1:]).strip()
+            trans, vocab, phrase, grammar = "", "", "", ""
+            for s in sections:
+                if "中文翻譯" in s: trans = s.replace("中文翻譯", "").strip()
+                if "重點單字" in s: vocab = format_to_bullet(s.replace("重點單字", "").strip())
+                if "重點片語" in s: phrase = format_to_bullet(s.replace("重點片語", "").strip())
+                if "重要文法" in s: grammar = format_to_bullet(s.replace("重要文法", "").strip())
+        except:
+            st.error("解析異常，請稍後再試。"); st.stop()
+
+        # --- UI 呈現 ---
+        st.markdown(f"# {title}")
+        st.write(article_text)
+
+        try:
+            audio_data = asyncio.run(get_audio_bytes(article_text, voice_map[accent], speed_map[speed_choice]))
+            c1, c2 = st.columns([3, 1])
+            with c1: st.audio(audio_data)
+            with c2: st.download_button("📥 下載音檔", audio_data, f"{topic}.mp3")
+        except: st.warning("語音合成暫時停用。")
+
+        st.divider()
+        st.subheader("🇹🇼 中文翻譯")
+        st.write(trans)
+
+        st.divider()
+        st.markdown(f"### 🎯 {lang_prefix} 核心學習重點")
+        col_v, col_p, col_g = st.columns(3)
+        with col_v: st.info(f"**【單字庫】**\n\n{vocab}")
+        with col_p: st.success(f"**【片語庫】**\n\n{phrase}")
+        with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
+
+        # ==========================================
+        # Notion 隔離式累積合併
+        # ==========================================
+        try:
+            v_id = get_section_id(NOTION_PAGE_ID, lang_prefix, "單字庫", "💡")
+            p_id = get_section_id(NOTION_PAGE_ID, lang_prefix, "片語庫", "🔗")
+            g_id = get_section_id(NOTION_PAGE_ID, lang_prefix, "文法庫", "📝")
+            
+            def append_to_notion(block_id, content):
+                if not content.strip(): return
+                rich_text_list = []
+                chunks = [content[i:i+1900] for i in range(0, len(content), 1900)]
+                for chunk in chunks:
+                    rich_text_list.append({"type": "text", "text": {"content": chunk}})
+
+                notion.blocks.children.append(
+                    block_id=block_id,
+                    children=[{"paragraph": {"rich_text": rich_text_list}}]
+                )
+
+            append_to_notion(v_id, vocab)
+            append_to_notion(p_id, phrase)
+            append_to_notion(g_id, grammar)
+            
+            st.success(f"✅ 知識已自動歸類至 Notion {lang_prefix} 專區！")
+            st.balloons()
+            
+        except Exception as e:
+            st.error(f"❌ Notion 同步失敗: {e}")
