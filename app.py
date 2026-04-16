@@ -154,30 +154,22 @@ if st.button("🔥 生成教材並同步知識庫"):
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
 
         # ==========================================
-        # Notion 累積合併邏輯 + 長度防爆切割 (Chunking)
+        # Notion 累積合併邏輯 (純淨無日期版) + 長度防爆切割
         # ==========================================
         try:
             v_id = get_section_id(NOTION_PAGE_ID, "重點單字", "💡")
             p_id = get_section_id(NOTION_PAGE_ID, "重點片語", "🔗")
             g_id = get_section_id(NOTION_PAGE_ID, "重要文法", "📝")
-
-            now_time = datetime.datetime.now().strftime("%m/%d")
             
-            def append_to_notion(block_id, content, prefix):
+            def append_to_notion(block_id, content):
                 if not content: return
                 
-                # 第一段：日期標籤 (灰色粗體)
-                rich_text_list = [
-                    {
-                        "type": "text",
-                        "text": {"content": f"📌 {now_time}：\n"},
-                        "annotations": {"bold": True, "color": "gray"}
-                    }
-                ]
+                rich_text_list = []
                 
-                # 第二段：內容切割防護網 (每 1900 字切一塊)
+                # 直接進行切割防護，不加任何額外標籤
                 full_text = f"{content}\n\n"
                 chunks = [full_text[i:i+1900] for i in range(0, len(full_text), 1900)]
+                
                 for chunk in chunks:
                     rich_text_list.append({
                         "type": "text",
@@ -193,11 +185,11 @@ if st.button("🔥 生成教材並同步知識庫"):
                     }]
                 )
 
-            append_to_notion(v_id, vocab, "單字")
-            append_to_notion(p_id, phrase, "片語")
-            append_to_notion(g_id, grammar, "文法")
+            append_to_notion(v_id, vocab)
+            append_to_notion(p_id, phrase)
+            append_to_notion(g_id, grammar)
             
-            st.success("✅ 知識已自動歸類並合併至 Notion 對應庫中！")
+            st.success("✅ 知識已自動純淨合併至 Notion 對應庫中！")
             st.balloons()
             
         except Exception as e:
