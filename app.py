@@ -5,7 +5,7 @@ import asyncio
 import re
 from notion_client import Client
 
-st.set_page_config(page_title="專業雙語學習發射台 V5.5", layout="wide")
+st.set_page_config(page_title="專業雙語學習發射台 V5.6", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -38,13 +38,7 @@ def get_section_id(page_id, lang_prefix, title, emoji):
             block_id=page_id,
             children=[{
                 "callout": {
-                    "rich_text": [
-                        {
-                            "type": "text",
-                            "text": {"content": f"{full_title}\n"},
-                            "annotations": {"bold": True}
-                        }
-                    ],
+                    "rich_text": [{"type": "text", "text": {"content": f"{full_title}\n"}, "annotations": {"bold": True}}],
                     "icon": {"emoji": emoji},
                     "color": "blue_background"
                 }
@@ -64,21 +58,26 @@ async def get_audio_bytes(text, voice, rate):
     return audio_data
 
 # ==========================================
-# 進階文字清洗濾波器 (雙重換行強制器)
+# 文字清洗濾波器 (新增：數量斷頭台)
 # ==========================================
-def format_to_bullet(text):
+def format_to_bullet(text, max_items=3):
     if not text: return ""
     text = text.strip()
-    # 1. 統一將所有列表開頭 (如 1. 或 -) 換成項目符號 •
     text = re.sub(r'^\s*\d+\.\s*', '• ', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[-*]\s+', '• ', text, flags=re.MULTILINE)
-    
-    # 2. 強制在每一個「•」前面加上「雙重換行」，確保 Markdown 絕對會斷行
     text = re.sub(r'(?<!^)\s*•\s*', '\n\n• ', text)
-    
-    # 3. 壓縮過多的空白行
     text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip() + "\n\n"
+    
+    # 強制擷取前 3 個項目，無視 AI 多寫的部分
+    lines = text.split('\n\n')
+    bullets = [line.strip() for line in lines if line.strip().startswith('•')]
+    return '\n\n'.join(bullets[:max_items]) + '\n\n'
+
+# 內容標籤定位器：精準抓取各區塊內容，避免被吞掉
+def extract_section(text, section_name):
+    pattern = rf"### {section_name}\s*(.*?)(?=###|$)"
+    match = re.search(pattern, text, re.DOTALL)
+    return match.group(1).strip() if match else ""
 
 # ==========================================
 # 側邊欄：控制區
@@ -94,27 +93,21 @@ if learning_lang == "英文 (English)":
     voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia)": "en-GB-SoniaNeural"}
     lang_prompt_target = f"{difficulty} 程度的英文"
     pronunciation_desc = "/發音與重音/"
-    romaji_template = "### 中文翻譯\n(此處寫出完整的中文翻譯)"
+    romaji_template = ""
 else:
     lang_prefix = "🇯🇵 日文"
     difficulty = st.sidebar.selectbox("📈 難易度", ["基礎 (JLPT N5-N4)", "中階 (JLPT N3)", "高階 (JLPT N2-N1)"])
     accent = st.sidebar.selectbox("🗣️ 語音", ["標準日語 (女聲)", "標準日語 (男聲)"])
     voice_map = {"標準日語 (女聲)": "ja-JP-NanamiNeural", "標準日語 (男聲)": "ja-JP-KeitaNeural"}
     lang_prompt_target = f"{difficulty} 程度的日文"
-    
-    # 修改點：將日文區塊的讀音全面改為羅馬拼音
     pronunciation_desc = "/羅馬拼音 (Romaji)/"
-    romaji_template = "### 羅馬拼音\n(此處寫出整段日文的羅馬拼音)\n### 中文翻譯\n(此處寫出完整的中文翻譯)"
+    romaji_template = "### 羅馬拼音\n(此處寫出整段原文的羅馬拼音，如果是對話請務必一人一行)\n"
 
 topic_list = [
-    "AI 技術與未來應用", 
-    "美食",
-    "再生能源", 
-    "精品咖啡", 
-    "無碳電力", 
-    "甲蟲飼育", 
-    "親子旅遊",
-    "其他"
+    "AI 技術", "美食",
+    "再生能源", "精品咖啡", 
+    "無碳電力", "甲蟲飼育", 
+    "親子旅遊", "其他"
 ]
 topic_choice = st.sidebar.selectbox("📚 文章主題", topic_list)
 topic = st.sidebar.text_input("✍️ 自訂主題：") if topic_choice == "其他" else topic_choice
@@ -123,6 +116,9 @@ word_count = st.sidebar.slider("文章字數", 100, 600, 300, 50)
 speed_choice = st.sidebar.select_slider("語速", options=["慢速", "正常", "快速"], value="正常")
 speed_map = {"慢速": "-20%", "正常": "+0%", "快速": "+20%"}
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
+
+# 針對對話模式的強制換行指令
+dialogue_rule = "【⚠️ 排版警告：這是情境對話，請務必嚴格遵守「一人一句」，且每個角色的發言之間「必須空一行」！】" if mode == "情境對話 (Dialogue)" else ""
 
 # ==========================================
 # 主顯示區
@@ -141,12 +137,16 @@ if st.button("🔥 生成教材並同步知識庫"):
             
             prompt = f"""
             請針對主題『{topic}』，撰寫一篇 {word_count} 字的【{lang_prompt_target}】{mode}。
+            {dialogue_rule}
             
-            ⚠️ 嚴格指令：你必須 100% 複製以下結構輸出，不可遺漏任何一個 ### 標籤，且每個項目「必須獨立換行」！
+            ⚠️ 嚴格指令：你必須 100% 複製以下結構輸出，不可遺漏任何一個 ### 標籤！
 
-            (此處寫出{target_lang_name}標題，不加任何符號)
+            ### 標題
+            (此處寫出{target_lang_name}標題)
+            ### 原文
             (此處寫出{target_lang_name}原文)
-            {romaji_template}
+            {romaji_template}### 中文翻譯
+            (此處寫出完整的中文翻譯)
             ### 重點單字
             • 單字1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
             • 單字2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
@@ -164,24 +164,26 @@ if st.button("🔥 生成教材並同步知識庫"):
         except Exception as api_err:
             st.error(f"❌ API 失敗：{api_err}"); st.stop()
 
-        # 精準解析與清洗
+        # 使用精準正則表達式擷取各區塊，解決原文被吞噬的問題
         try:
-            sections = response_text.split("###")
-            eng_part = sections[0].strip().split('\n')
-            title = eng_part[0].strip()
-            article_text = '\n'.join(eng_part[1:]).strip()
+            title = extract_section(response_text, "標題")
+            # 如果是情境對話，強制把單一換行變成雙重換行，確保網頁呈現有間距
+            article_text = extract_section(response_text, "原文")
+            if mode == "情境對話 (Dialogue)":
+                article_text = re.sub(r'([^\n])\n([^\n])', r'\1\n\n\2', article_text)
+
+            romaji = extract_section(response_text, "羅馬拼音")
+            if mode == "情境對話 (Dialogue)" and romaji:
+                romaji = re.sub(r'([^\n])\n([^\n])', r'\1\n\n\2', romaji)
+
+            trans = extract_section(response_text, "中文翻譯")
             
-            romaji, trans, vocab, phrase, grammar = "", "", "", "", ""
-            
-            for s in sections:
-                s_strip = s.strip()
-                if s_strip.startswith("羅馬拼音"): romaji = s_strip.replace("羅馬拼音", "", 1).strip()
-                elif s_strip.startswith("中文翻譯"): trans = s_strip.replace("中文翻譯", "", 1).strip()
-                elif s_strip.startswith("重點單字"): vocab = format_to_bullet(s_strip.replace("重點單字", "", 1).strip())
-                elif s_strip.startswith("重點片語"): phrase = format_to_bullet(s_strip.replace("重點片語", "", 1).strip())
-                elif s_strip.startswith("重要文法"): grammar = format_to_bullet(s_strip.replace("重要文法", "", 1).strip())
-        except:
-            st.error("解析異常，請稍後再試。"); st.stop()
+            # 使用 format_to_bullet 內建的「最多3個」斷頭台
+            vocab = format_to_bullet(extract_section(response_text, "重點單字"), max_items=3)
+            phrase = format_to_bullet(extract_section(response_text, "重點片語"), max_items=3)
+            grammar = format_to_bullet(extract_section(response_text, "重要文法"), max_items=3)
+        except Exception as e:
+            st.error("解析異常，AI 生成的格式有誤，請重新生成。"); st.stop()
 
         # --- UI 呈現 ---
         st.markdown(f"# {title}")
@@ -191,7 +193,9 @@ if st.button("🔥 生成教材並同步知識庫"):
             st.caption(f"🗣️ **Romaji**：\n{romaji}")
 
         try:
-            audio_data = asyncio.run(get_audio_bytes(article_text, voice_map[accent], speed_map[speed_choice]))
+            # 確保傳給語音引擎的字串是乾淨的
+            clean_audio_text = article_text.replace("*", "")
+            audio_data = asyncio.run(get_audio_bytes(clean_audio_text, voice_map[accent], speed_map[speed_choice]))
             c1, c2 = st.columns([3, 1])
             with c1: st.audio(audio_data)
             with c2: st.download_button("📥 下載音檔", audio_data, f"{topic}.mp3")
@@ -204,7 +208,6 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.divider()
         st.markdown(f"### 🎯 {lang_prefix} 核心學習重點")
         col_v, col_p, col_g = st.columns(3)
-        # 因為加了雙重換行，網頁上的每一個項目都會完美分開
         with col_v: st.info(f"**【單字庫】**\n\n{vocab}")
         with col_p: st.success(f"**【片語庫】**\n\n{phrase}")
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
