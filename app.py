@@ -6,7 +6,7 @@ import re
 import time
 from notion_client import Client
 
-st.set_page_config(page_title="專業雙語學習發射台 V5.10", layout="wide")
+st.set_page_config(page_title="專業雙語學習發射台 V5.11", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -51,7 +51,7 @@ def get_section_id(page_id, lang_prefix, title, emoji):
         return None
 
 # ==========================================
-# 語音引擎 (修改點 1：新增雙聲道分軌器)
+# 語音引擎 (包含智慧分軌器)
 # ==========================================
 async def get_audio_bytes(text, voice, rate):
     communicate = edge_tts.Communicate(text, voice, rate=rate)
@@ -67,29 +67,25 @@ async def get_dialogue_audio_bytes(text, voice_pair, rate):
     speakers = {}
     audio_data = b""
     voice_index = 0
-    current_voice = voice_pair[0] # 預設聲音
+    current_voice = voice_pair[0] 
     
     for line in lines:
         line = line.strip()
         if not line: continue
         
-        # 尋找「名字: 台詞」的格式 (支援半形與全形冒號)
         match = re.match(r'^([^:：]+)[:：]\s*(.*)$', line)
         if match:
             speaker = match.group(1).strip()
             spoken_text = match.group(2).strip()
             
-            # 遇到新角色，指派新的聲音 (男女輪替)
             if speaker not in speakers:
                 speakers[speaker] = voice_pair[voice_index % 2]
                 voice_index += 1
                 
             current_voice = speakers[speaker]
-            # 傳給語音引擎的只有「台詞(spoken_text)」，不含名字
             chunk = await get_audio_bytes(spoken_text, current_voice, rate)
             audio_data += chunk
         else:
-            # 如果 AI 沒有寫名字，就延續上一個人的聲音繼續念
             chunk = await get_audio_bytes(line, current_voice, rate)
             audio_data += chunk
             
@@ -116,25 +112,37 @@ def extract_section(text, section_name):
     return match.group(1).strip() if match else ""
 
 # ==========================================
-# 側邊欄：控制區 (修改點 2：動態配置單/雙聲道配音員)
+# 側邊欄：控制區
 # ==========================================
 st.sidebar.title("🛠️ 學習設定")
 
 learning_lang = st.sidebar.radio("🌐 學習語言", ["英文 (English)", "日文 (日本語)"])
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
 
+# 🌟 核心修改區：動態配置英文與日文的選單邏輯
 if learning_lang == "英文 (English)":
     lang_prefix = "🇬🇧 英文"
     difficulty = st.sidebar.selectbox("📈 難易度", ["基礎 (A1-A2)", "中階 (B1-B2)", "高階 (C1-C2 專業)"])
-    accent = st.sidebar.selectbox("🗣️ 口音", ["美國腔 (US)", "英國腔 (UK)"])
     
-    # 根據口音準備單聲道 (voice_single) 與雙聲道組合 (voice_pair)
-    if "US" in accent:
-        voice_single = "en-US-AriaNeural"
-        voice_pair = ("en-US-AriaNeural", "en-US-GuyNeural")
+    # 根據閱讀或對話模式，顯示不同的介面與選項
+    if mode == "情境對話 (Dialogue)":
+        st.sidebar.info("🗣️ 英文對話已自動啟用【男女雙聲道】")
+        accent = st.sidebar.selectbox("🗣️ 口音搭配", ["🇺🇸 美國腔 (女+男)", "🇬🇧 英國腔 (女+男)"])
+        if "美國腔" in accent:
+            voice_pair = ("en-US-AriaNeural", "en-US-GuyNeural")
+        else:
+            voice_pair = ("en-GB-SoniaNeural", "en-GB-RyanNeural")
+        voice_single = None
     else:
-        voice_single = "en-GB-SoniaNeural"
-        voice_pair = ("en-GB-SoniaNeural", "en-GB-RyanNeural")
+        accent = st.sidebar.selectbox("🗣️ 語音", [
+            "🇺🇸 美國腔 (女聲 - Aria)", "🇺🇸 美國腔 (男聲 - Guy)",
+            "🇬🇧 英國腔 (女聲 - Sonia)", "🇬🇧 英國腔 (男聲 - Ryan)"
+        ])
+        if "Aria" in accent: voice_single = "en-US-AriaNeural"
+        elif "Guy" in accent: voice_single = "en-US-GuyNeural"
+        elif "Sonia" in accent: voice_single = "en-GB-SoniaNeural"
+        else: voice_single = "en-GB-RyanNeural"
+        voice_pair = None
         
     lang_prompt_target = f"{difficulty} 程度的英文"
     pronunciation_desc = "/發音與重音/"
@@ -143,11 +151,10 @@ else:
     lang_prefix = "🇯🇵 日文"
     difficulty = st.sidebar.selectbox("📈 難易度", ["基礎 (JLPT N5-N4)", "中階 (JLPT N3)", "高階 (JLPT N2-N1)"])
     
-    # 如果是日文對話，強制綁定男女雙聲
     if mode == "情境對話 (Dialogue)":
         st.sidebar.info("🗣️ 日文對話已自動啟用【男女雙聲道】")
-        voice_single = "ja-JP-NanamiNeural"
         voice_pair = ("ja-JP-NanamiNeural", "ja-JP-KeitaNeural")
+        voice_single = None
     else:
         accent = st.sidebar.selectbox("🗣️ 語音", ["標準日語 (女聲)", "標準日語 (男聲)"])
         voice_single = "ja-JP-NanamiNeural" if "女聲" in accent else "ja-JP-KeitaNeural"
@@ -170,7 +177,6 @@ word_count = st.sidebar.slider("文章字數", 100, 600, 300, 50)
 speed_choice = st.sidebar.select_slider("語速", options=["慢速", "正常", "快速"], value="正常")
 speed_map = {"慢速": "-20%", "正常": "+0%", "快速": "+20%"}
 
-# 修改點 3：強化 Prompt 指令，逼迫 AI 寫出有「冒號」的對話
 dialogue_rule = "【⚠️ 排版警告：這是情境對話，請務必嚴格遵守「一人一句」，且每句話必須嚴格以「角色名字: 」開頭 (例如 Tom: Hello!)】" if mode == "情境對話 (Dialogue)" else ""
 
 # ==========================================
@@ -255,14 +261,11 @@ if st.button("🔥 生成教材並同步知識庫"):
         if romaji:
             st.caption(f"🗣️ **Romaji**：\n{romaji}")
 
-        # 修改點 4：在渲染音檔時，判斷要使用單軌還是雙軌播放器
         try:
             clean_audio_text = article_text.replace("*", "")
             if mode == "情境對話 (Dialogue)":
-                # 啟用雙聲道過濾器
                 audio_data = asyncio.run(get_dialogue_audio_bytes(clean_audio_text, voice_pair, speed_map[speed_choice]))
             else:
-                # 啟用一般單聲道
                 audio_data = asyncio.run(get_audio_bytes(clean_audio_text, voice_single, speed_map[speed_choice]))
                 
             c1, c2 = st.columns([3, 1])
