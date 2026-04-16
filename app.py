@@ -5,7 +5,7 @@ import asyncio
 import re
 from notion_client import Client
 
-st.set_page_config(page_title="專業雙語學習發射台 V5.4", layout="wide")
+st.set_page_config(page_title="專業雙語學習發射台 V5.5", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -64,16 +64,21 @@ async def get_audio_bytes(text, voice, rate):
     return audio_data
 
 # ==========================================
-# 進階文字清洗濾波器
+# 進階文字清洗濾波器 (雙重換行強制器)
 # ==========================================
 def format_to_bullet(text):
     if not text: return ""
     text = text.strip()
+    # 1. 統一將所有列表開頭 (如 1. 或 -) 換成項目符號 •
     text = re.sub(r'^\s*\d+\.\s*', '• ', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[-*]\s+', '• ', text, flags=re.MULTILINE)
-    text = re.sub(r'([^\n])\s*•', r'\1\n•', text)
-    text = re.sub(r'\n\s*\n', '\n', text)
-    return text + "\n"
+    
+    # 2. 強制在每一個「•」前面加上「雙重換行」，確保 Markdown 絕對會斷行
+    text = re.sub(r'(?<!^)\s*•\s*', '\n\n• ', text)
+    
+    # 3. 壓縮過多的空白行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip() + "\n\n"
 
 # ==========================================
 # 側邊欄：控制區
@@ -82,7 +87,6 @@ st.sidebar.title("🛠️ 學習設定")
 
 learning_lang = st.sidebar.radio("🌐 學習語言", ["英文 (English)", "日文 (日本語)"])
 
-# 動態語言變數設定 (新增羅馬拼音區塊指令)
 if learning_lang == "英文 (English)":
     lang_prefix = "🇬🇧 英文"
     difficulty = st.sidebar.selectbox("📈 難易度", ["基礎 (A1-A2)", "中階 (B1-B2)", "高階 (C1-C2 專業)"])
@@ -90,8 +94,6 @@ if learning_lang == "英文 (English)":
     voice_map = {"美國腔 (US - Aria)": "en-US-AriaNeural", "英國腔 (UK - Sonia)": "en-GB-SoniaNeural"}
     lang_prompt_target = f"{difficulty} 程度的英文"
     pronunciation_desc = "/發音與重音/"
-    
-    # 英文不需要羅馬拼音，直接接中文翻譯
     romaji_template = "### 中文翻譯\n(此處寫出完整的中文翻譯)"
 else:
     lang_prefix = "🇯🇵 日文"
@@ -99,13 +101,13 @@ else:
     accent = st.sidebar.selectbox("🗣️ 語音", ["標準日語 (女聲)", "標準日語 (男聲)"])
     voice_map = {"標準日語 (女聲)": "ja-JP-NanamiNeural", "標準日語 (男聲)": "ja-JP-KeitaNeural"}
     lang_prompt_target = f"{difficulty} 程度的日文"
-    pronunciation_desc = "/平假名讀音/"
     
-    # 日文專屬：在原文和中文之間安插羅馬拼音欄位
+    # 修改點：將日文區塊的讀音全面改為羅馬拼音
+    pronunciation_desc = "/羅馬拼音 (Romaji)/"
     romaji_template = "### 羅馬拼音\n(此處寫出整段日文的羅馬拼音)\n### 中文翻譯\n(此處寫出完整的中文翻譯)"
 
 topic_list = [
-    "AI 技術", 
+    "AI 技術與未來應用", 
     "美食",
     "再生能源", 
     "精品咖啡", 
@@ -137,7 +139,6 @@ if st.button("🔥 生成教材並同步知識庫"):
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
             target_lang_name = "英文" if "英文" in learning_lang else "日文"
             
-            # 將動態變數 romaji_template 注入填空卷中
             prompt = f"""
             請針對主題『{topic}』，撰寫一篇 {word_count} 字的【{lang_prompt_target}】{mode}。
             
@@ -172,7 +173,6 @@ if st.button("🔥 生成教材並同步知識庫"):
             
             romaji, trans, vocab, phrase, grammar = "", "", "", "", ""
             
-            # 解析器更新：新增抓取「羅馬拼音」區塊
             for s in sections:
                 s_strip = s.strip()
                 if s_strip.startswith("羅馬拼音"): romaji = s_strip.replace("羅馬拼音", "", 1).strip()
@@ -187,7 +187,6 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.markdown(f"# {title}")
         st.write(article_text)
         
-        # 若有生成羅馬拼音 (即日文模式)，以灰色小字顯示在原文下方
         if romaji:
             st.caption(f"🗣️ **Romaji**：\n{romaji}")
 
@@ -205,6 +204,7 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.divider()
         st.markdown(f"### 🎯 {lang_prefix} 核心學習重點")
         col_v, col_p, col_g = st.columns(3)
+        # 因為加了雙重換行，網頁上的每一個項目都會完美分開
         with col_v: st.info(f"**【單字庫】**\n\n{vocab}")
         with col_p: st.success(f"**【片語庫】**\n\n{phrase}")
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
