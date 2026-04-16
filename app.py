@@ -3,9 +3,10 @@ import google.generativeai as genai
 import edge_tts
 import asyncio
 import re
+import time
 from notion_client import Client
 
-st.set_page_config(page_title="專業雙語學習發射台 V5.6", layout="wide")
+st.set_page_config(page_title="專業雙語學習發射台 V5.8", layout="wide")
 
 # ==========================================
 # 🛑 金鑰讀取區
@@ -58,7 +59,7 @@ async def get_audio_bytes(text, voice, rate):
     return audio_data
 
 # ==========================================
-# 文字清洗濾波器 (新增：數量斷頭台)
+# 文字清洗濾波器
 # ==========================================
 def format_to_bullet(text, max_items=3):
     if not text: return ""
@@ -68,12 +69,10 @@ def format_to_bullet(text, max_items=3):
     text = re.sub(r'(?<!^)\s*•\s*', '\n\n• ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     
-    # 強制擷取前 3 個項目，無視 AI 多寫的部分
     lines = text.split('\n\n')
     bullets = [line.strip() for line in lines if line.strip().startswith('•')]
     return '\n\n'.join(bullets[:max_items]) + '\n\n'
 
-# 內容標籤定位器：精準抓取各區塊內容，避免被吞掉
 def extract_section(text, section_name):
     pattern = rf"### {section_name}\s*(.*?)(?=###|$)"
     match = re.search(pattern, text, re.DOTALL)
@@ -104,7 +103,7 @@ else:
     romaji_template = "### 羅馬拼音\n(此處寫出整段原文的羅馬拼音，如果是對話請務必一人一行)\n"
 
 topic_list = [
-    "AI 技術", "美食",
+    "AI 技術", "美食", "假期",
     "再生能源", "精品咖啡", 
     "無碳電力", "甲蟲飼育", 
     "親子旅遊", "其他"
@@ -117,7 +116,6 @@ speed_choice = st.sidebar.select_slider("語速", options=["慢速", "正常", "
 speed_map = {"慢速": "-20%", "正常": "+0%", "快速": "+20%"}
 mode = st.sidebar.radio("內容模式", ["閱讀文章 (Reading)", "情境對話 (Dialogue)"])
 
-# 針對對話模式的強制換行指令
 dialogue_rule = "【⚠️ 排版警告：這是情境對話，請務必嚴格遵守「一人一句」，且每個角色的發言之間「必須空一行」！】" if mode == "情境對話 (Dialogue)" else ""
 
 # ==========================================
@@ -131,43 +129,58 @@ if st.button("🔥 生成教材並同步知識庫"):
         st.stop()
 
     with st.spinner(f"AI 老師正在組織 {lang_prefix} 的學習重點..."):
-        try:
-            model = genai.GenerativeModel('gemini-2.5-flash-lite')
-            target_lang_name = "英文" if "英文" in learning_lang else "日文"
-            
-            prompt = f"""
-            請針對主題『{topic}』，撰寫一篇 {word_count} 字的【{lang_prompt_target}】{mode}。
-            {dialogue_rule}
-            
-            ⚠️ 嚴格指令：你必須 100% 複製以下結構輸出，不可遺漏任何一個 ### 標籤！
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        target_lang_name = "英文" if "英文" in learning_lang else "日文"
+        
+        prompt = f"""
+        請針對主題『{topic}』，撰寫一篇 {word_count} 字的【{lang_prompt_target}】{mode}。
+        {dialogue_rule}
+        
+        ⚠️ 嚴格指令：你必須 100% 複製以下結構輸出，不可遺漏任何一個 ### 標籤！
 
-            ### 標題
-            (此處寫出{target_lang_name}標題)
-            ### 原文
-            (此處寫出{target_lang_name}原文)
-            {romaji_template}### 中文翻譯
-            (此處寫出完整的中文翻譯)
-            ### 重點單字
-            • 單字1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 單字2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 單字3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            ### 重點片語
-            • 片語1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 片語2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 片語3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            ### 重要文法
-            • 文法1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 文法2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            • 文法3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
-            """
-            response_text = model.generate_content(prompt).text
-        except Exception as api_err:
-            st.error(f"❌ API 失敗：{api_err}"); st.stop()
+        ### 標題
+        (此處寫出{target_lang_name}標題)
+        ### 原文
+        (此處寫出{target_lang_name}原文)
+        {romaji_template}### 中文翻譯
+        (此處寫出完整的中文翻譯)
+        ### 重點單字
+        • 單字1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 單字2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 單字3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        ### 重點片語
+        • 片語1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 片語2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 片語3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        ### 重要文法
+        • 文法1 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 文法2 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        • 文法3 - 性質 - {pronunciation_desc} - 翻譯：精簡例句
+        """
+        
+        # 🛡️ 商業級防護機制：自動重試邏輯
+        max_retries = 2
+        response_text = ""
+        for attempt in range(max_retries):
+            try:
+                response_text = model.generate_content(prompt).text
+                break # 成功取得資料，跳出迴圈
+            except Exception as api_err:
+                err_msg = str(api_err)
+                if "429" in err_msg or "Quota" in err_msg or "exceeded" in err_msg.lower():
+                    if attempt < max_retries - 1:
+                        st.warning("⏳ 觸發 Google API 流量保護機制！系統將在 60 秒後自動為您重試，請勿關閉網頁...")
+                        time.sleep(60) # 強制讓程式睡 60 秒冷卻
+                    else:
+                        st.error("❌ API 流量限制極限，請稍後幾分鐘再試。或考慮至 Google AI Studio 升級為 Pay-as-you-go 計畫。")
+                        st.stop()
+                else:
+                    st.error(f"❌ API 發生未知的錯誤：{api_err}")
+                    st.stop()
 
-        # 使用精準正則表達式擷取各區塊，解決原文被吞噬的問題
+        # 如果程式走到這裡，代表成功拿到內容了，繼續解析
         try:
             title = extract_section(response_text, "標題")
-            # 如果是情境對話，強制把單一換行變成雙重換行，確保網頁呈現有間距
             article_text = extract_section(response_text, "原文")
             if mode == "情境對話 (Dialogue)":
                 article_text = re.sub(r'([^\n])\n([^\n])', r'\1\n\n\2', article_text)
@@ -177,15 +190,12 @@ if st.button("🔥 生成教材並同步知識庫"):
                 romaji = re.sub(r'([^\n])\n([^\n])', r'\1\n\n\2', romaji)
 
             trans = extract_section(response_text, "中文翻譯")
-            
-            # 使用 format_to_bullet 內建的「最多3個」斷頭台
             vocab = format_to_bullet(extract_section(response_text, "重點單字"), max_items=3)
             phrase = format_to_bullet(extract_section(response_text, "重點片語"), max_items=3)
             grammar = format_to_bullet(extract_section(response_text, "重要文法"), max_items=3)
         except Exception as e:
-            st.error("解析異常，AI 生成的格式有誤，請重新生成。"); st.stop()
+            st.error("解析異常，AI 生成的格式有誤，請稍後再試。"); st.stop()
 
-        # --- UI 呈現 ---
         st.markdown(f"# {title}")
         st.write(article_text)
         
@@ -193,7 +203,6 @@ if st.button("🔥 生成教材並同步知識庫"):
             st.caption(f"🗣️ **Romaji**：\n{romaji}")
 
         try:
-            # 確保傳給語音引擎的字串是乾淨的
             clean_audio_text = article_text.replace("*", "")
             audio_data = asyncio.run(get_audio_bytes(clean_audio_text, voice_map[accent], speed_map[speed_choice]))
             c1, c2 = st.columns([3, 1])
@@ -212,9 +221,6 @@ if st.button("🔥 生成教材並同步知識庫"):
         with col_p: st.success(f"**【片語庫】**\n\n{phrase}")
         with col_g: st.warning(f"**【文法庫】**\n\n{grammar}")
 
-        # ==========================================
-        # Notion 隔離式累積合併
-        # ==========================================
         try:
             v_id = get_section_id(NOTION_PAGE_ID, lang_prefix, "單字庫", "💡")
             p_id = get_section_id(NOTION_PAGE_ID, lang_prefix, "片語庫", "🔗")
